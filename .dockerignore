@@ -1,0 +1,36 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Run artefacts (raw call logs are regenerable, never committed)
+reports/*/
+!reports/.gitkeep
+
+# Sandbox scratch dirs used by the test suite
+.pytemp/
+.pytmp/
+.pytest_tmp/
+pytest-cache-files-*/
+tests/_*_scratch/
+tests/.tmp_render*/
+tests/.ptmp*/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key

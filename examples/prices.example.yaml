@@ -1,0 +1,85 @@
+# =============================================================================
+# tokbench — price-book overlay (example)
+# =============================================================================
+#
+# WHAT THIS FILE IS
+#   A *partial* price book. It is layered on top of tokbench.pricing.
+#   DEFAULT_PRICE_BOOK at load time (see pricing.load_price_book), so you only
+#   list the models whose price you want to correct. Anything you omit keeps the
+#   bundled value; anything you name overrides it.
+#
+#   That overlay behaviour is the point: vendor list prices change, enterprise
+#   contracts differ from list, and cached-input pricing is often negotiated
+#   separately. Re-pricing an existing run is then a file edit plus
+#   `tokbench report <run-dir> --prices examples/prices.example.yaml` — no API
+#   calls are re-made, because cost is computed from stored token counts.
+#
+# UNITS
+#   USD per 1,000,000 tokens — the unit every vendor publishes. `input` is the
+#   *uncached* prompt price. If `cache_read` / `cache_write` are omitted they
+#   default to 10% and 125% of `input` respectively (see ModelPrice), which is
+#   the industry-typical ratio but not a law; set them when you know better.
+#
+# USAGE
+#   In an experiment config:      prices: prices.example.yaml
+#   Or from the CLI:              tokbench report reports/<run> --prices examples/prices.example.yaml
+#
+# VERIFY IT PARSES
+#   python -c "from tokbench.pricing import PriceBook; \
+#              print(PriceBook.from_yaml('examples/prices.example.yaml'))"
+#
+# =============================================================================
+
+# Name recorded in the report so a reader can tell which rates produced the
+# dollar figures. Not a filename — pick whatever identifies the contract/date.
+name: my-rates
+
+# Currency label carried into reports. Only "USD" is meaningful today; the field
+# exists so a non-USD book cannot be silently mixed into USD results.
+currency: USD
+
+# Free-form provenance string; surfaced in report metadata. Use a date you can
+# defend later, not "today".
+effective_date: "2026-01-01"
+
+# --- Model prices ------------------------------------------------------------
+# Key = the model identifier the experiment's ModelSpec.model resolves to
+# (ModelSpec.price_key). A provider-prefixed key like "openai/gpt-4o-mini" also
+# resolves, because PriceBook.get() falls back to the last path segment.
+models:
+  # DeepSeek chat: list is $0.27 in / $1.10 out, but we have a committed rate and
+  # a negotiated cache-read price. Specifying cache_read explicitly overrides the
+  # 10%-of-input default, which would otherwise overstate cache savings.
+  deepseek-chat:
+    input: 0.27
+    output: 1.10
+    cache_read: 0.07
+    cache_write: 0.27
+
+  # DeepSeek reasoner: reasoning tokens are billed at the output rate, so the
+  # `reasoning` field is set explicitly rather than left to default.
+  deepseek-reasoner:
+    input: 0.55
+    output: 2.19
+    cache_read: 0.14
+    cache_write: 0.55
+    reasoning: 2.19
+
+  # A cheap tier where the bundled default may drift; only the two required
+  # fields, so cache_read/cache_write fall back to the 10%/125% defaults.
+  gpt-4o-mini:
+    input: 0.15
+    output: 0.60
+
+  # The cheapest tier in the flagship lineup. Listed so the frontier's left edge
+  # is priced from our own contract rather than a bundled snapshot.
+  gpt-4.1-nano:
+    input: 0.10
+    output: 0.40
+
+  # Synthetic model used by the mock adapter. Keeping a non-zero price for it is
+  # deliberate: a $0 model would make the frontier's "value" metric divide by
+  # zero and would flatter the cheapest arm unrealistically.
+  mock-small:
+    input: 0.05
+    output: 0.20

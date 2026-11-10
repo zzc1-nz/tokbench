@@ -1,0 +1,109 @@
+# =============================================================================
+# tokbench — smoke experiment (CI / first-run sanity check)
+# =============================================================================
+#
+# WHAT THIS IS FOR
+#   A tiny end-to-end exercise of the whole pipeline: config parse -> task load
+#   -> prompt assembly -> adapter call -> retry policy -> grading -> run store ->
+#   report. It must finish in seconds and cost nothing, so it is safe to run on
+#   every commit and as the first command a new user types.
+#
+# THE MATRIX
+#   2 models  x  2 strategies  x  5 tasks  x  1 repeat  =  20 cells
+#   20 cells x ~2,000 prompt tokens  ~=  40,000 prompt tokens
+#
+#   It is deliberately NOT a smaller copy of the flagship: 5 tasks and 1 repeat
+#   mean the numbers are statistically meaningless. That is the point — this file
+#   verifies plumbing, never draws conclusions. Use examples/experiment.yaml for
+#   anything you intend to cite.
+#
+# RUN IT
+#   tokbench validate -c examples/experiment_smoke.yaml   # config + taskset + prices
+#   tokbench run      -c examples/experiment_smoke.yaml   # the 20-cell run
+#   tokbench show     reports/smoke/<run-id>              # terminal summary
+#   pytest tests/ -q                                      # same shape as the suite
+#
+# =============================================================================
+
+version: 1
+
+experiment:
+  name: smoke
+  description: >-
+    Minimal end-to-end run: 2 models x 2 strategies x 5 tasks x 1 repeat.
+    Verifies config loading, prompt assembly, retries, grading and report
+    generation. Results are not statistically meaningful by design.
+  seed: 7               # any fixed seed; only needs to be reproducible
+  repeats: 1            # one pass — variance is not being measured here
+  concurrency: 4        # small pool: the run is over before parallelism matters
+
+taskset:
+  # Resolved relative to THIS file's directory (examples/), hence "../".
+  path: ../tasks/coding_bench.jsonl
+  name: coding_bench_smoke
+  # Keep only the first 5 tasks: cb-001..cb-005, i.e. five codegen prompts.
+  # Taking a prefix rather than a random sample keeps the run deterministic.
+  limit: 5
+
+models:
+  # Cheapest two entries of the flagship lineup, so the smoke run exercises both
+  # a "real" model name and the synthetic floor without inflating any cost.
+  - id: deepseek-chat
+    provider: mock
+    model: deepseek-chat
+    max_output_tokens: 512
+    temperature: 0.0
+    tags: [cheap, smoke]
+
+  - id: mock-small
+    provider: mock
+    model: mock-small
+    max_output_tokens: 256
+    temperature: 0.0
+    tags: [synthetic, smoke]
+
+strategies:
+  # The two extremes of the ablation, so the smoke run still produces a non-zero
+  # token delta between arms (which is what the report's delta table consumes).
+  - id: baseline
+    description: Control arm — short system prompt, no examples, no reasoning, no compression.
+    system_prompt_preset: short
+    few_shot: 0
+    cot: false
+    compress_tool_output: false
+    tags: [control]
+
+  - id: fewshot-compress
+    description: Baseline plus 3 few-shot exemplars and compressed tool output.
+    system_prompt_preset: short
+    few_shot: 3
+    cot: false
+    compress_tool_output: true
+    tags: [few-shot, compression]
+
+retry:
+  # Same policy as the flagship so the retry path is exercised identically.
+  max_attempts: 3
+  backoff_base_s: 0.1       # shorter backoff: a smoke run must not sit waiting
+  backoff_max_s: 1.0
+  jitter: true
+  retry_on: [rate_limit, timeout, server_error, network]
+
+budget:
+  # 250k tokens is ~6x the ~40k planning estimate: room for retries and output
+  # tokens without ever letting a runaway loop spend real money.
+  max_total_tokens: 250000
+  # max_cost_usd: 0.50
+  # max_calls: 200
+
+output:
+  # A distinct directory keeps smoke artefacts from polluting a real study.
+  dir: reports/smoke
+  formats: [json, html]
+  keep_outputs: true
+
+# Bundled price book only — no overlay. The smoke run must work with zero extra
+# files present, so it deliberately does not reference examples/prices.example.yaml.
+prices: null
+
+adapter_mode: mock

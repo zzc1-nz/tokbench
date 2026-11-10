@@ -1,0 +1,195 @@
+# =============================================================================
+# tokbench — flagship experiment: "prompt-strategy cost/quality frontier"
+# =============================================================================
+#
+# WHAT THIS MEASURES
+#   Five models are run against the same 50 engineering tasks under three prompt
+#   strategies. Every (model, strategy, task, repeat) combination is one *cell*,
+#   and the run records the token usage, USD cost and graded quality of each.
+#   The output answers one question: which model + prompting combination buys the
+#   most quality per dollar, and what exactly do the extra tokens buy?
+#
+# THE MATRIX
+#   5 models  x  3 strategies  x  50 tasks  x  3 repeats  =  2,250 cells
+#
+#   Token budget arithmetic (the number the brief calls ~4.5M):
+#     2,250 cells  x  ~2,000 prompt tokens per call  =  4,500,000 prompt tokens
+#   The 2,000-token assumption is deliberate and documented: a task prompt is
+#   ~100 tokens, the "short" system preset is ~15, the three few-shot exemplars
+#   add ~200, and the six tool-use tasks carry a 1,100-1,500 token tool payload
+#   (the rest carry none).  `tokbench validate -c <this file>` prints the same
+#   estimate (2,250 cells ~ 4.50M prompt tokens at 2k/call), so this comment is a
+#   planning figure, not a promise.  Measured against the real task file, a
+#   baseline call actually averages ~282 prompt tokens — the 2,000 constant is a
+#   conservative ceiling that leaves headroom, not an estimate of the mean.
+#
+# WHY THESE THREE STRATEGIES
+#   baseline        the cheapest defensible prompt: short system message, no
+#                   examples, no reasoning instruction, tool output verbatim.
+#   cot             baseline + a chain-of-thought instruction. Isolates the cost
+#                   of asking for reasoning, at identical input tokens.
+#   fewshot-compress baseline + 3 category-matched exemplars and compressed tool
+#                   output. Tests whether teaching-by-example earns its tokens,
+#                   and whether summarising a 1.4k-token JSON blob hurts quality.
+#   Every knob differs from `baseline` in exactly one direction, so a delta
+#   between two rows of the report is attributable to a named field rather than
+#   to "the prompt".
+#
+# RUN IT
+#   pip install -e ".[panel]"
+#   tokbench validate -c examples/experiment.yaml   # check config + taskset + prices
+#   tokbench run      -c examples/experiment.yaml   # executes the 2,250 cells
+#   tokbench show     reports/<run-id>              # terminal summary
+#   tokbench report   reports/<run-id>              # JSON + HTML report
+#
+# =============================================================================
+
+version: 1
+
+experiment:
+  # Human-readable name; it prefixes run directory names (reports/<name>-<utc>).
+  name: frontier-flagship
+  description: >-
+    5 models x 3 prompt strategies over the 50-task coding benchmark, 3 repeats.
+    Measures quality-per-dollar and attributes token deltas to individual prompt
+    knobs (system length, few-shot count, chain-of-thought, tool compression).
+  # Seed for the mock adapter's synthetic usage/jitter and the retry backoff RNG.
+  # A fixed seed makes a mock run byte-comparable between machines; a live run
+  # cannot be reproduced exactly, but the seed still pins client-side choices.
+  seed: 42
+  # 3 repeats per cell: enough to separate a real effect from adapter noise
+  # (the mock adapter has ~3% injected failures and output-length variance).
+  # Tripling the cells triples the token bill, hence the budget guard below.
+  repeats: 3
+  # 8 concurrent requests: enough to finish in minutes, low enough that a live
+  # run stays well under typical provider rate limits. Max is 64.
+  concurrency: 8
+
+taskset:
+  # NOTE: paths are resolved relative to THIS FILE's directory (examples/), not
+  # the shell's working directory — see ExperimentConfig.resolve_path. Hence the
+  # "../" prefix. Absolute paths also work.
+  path: ../tasks/coding_bench.jsonl
+  # Optional display name override; defaults to the file stem (coding_bench).
+  name: coding_bench
+  # limit: 5   # uncomment to shave the matrix down for a quick sanity run
+
+models:
+  # adapter_mode is "mock" below, so every model here is answered by the offline
+  # MockAdapter — no API keys, no network, no spend. The `model:` field still
+  # matters: it is the key used to look prices up in the price book, so it must
+  # match an entry in tokbench.pricing.DEFAULT_PRICE_BOOK (or your overlay).
+  #
+  # To run for real: set adapter_mode: live, switch `provider` to the real adapter
+  # id (openai | anthropic | deepseek | ollama), set env_key, and export the key.
+  - id: deepseek-chat
+    provider: mock
+    model: deepseek-chat        # $0.27 in / $1.10 out per 1M tokens, cache read $0.07
+    max_output_tokens: 1024
+    temperature: 0.0            # 0.0 = deterministic; the variable under test is the prompt
+    tags: [cheap, chat, high-volume]
+
+  - id: deepseek-reasoner
+    provider: mock
+    model: deepseek-reasoner    # $0.55 in / $2.19 out, cache read $0.14
+    max_output_tokens: 1536     # reasoning models need room to think before answering
+    temperature: 0.0
+    tags: [reasoning, mid-cost]
+
+  - id: gpt-4o-mini
+    provider: mock
+    model: gpt-4o-mini          # $0.15 in / $0.60 out
+    max_output_tokens: 1024
+    temperature: 0.0
+    tags: [cheap, chat]
+
+  - id: gpt-4.1-nano
+    provider: mock
+    model: gpt-4.1-nano         # $0.10 in / $0.40 out — the cheapest credible tier
+    max_output_tokens: 1024
+    temperature: 0.0
+    tags: [cheapest, chat]
+
+  - id: mock-small
+    provider: mock
+    model: mock-small           # $0.05 in / $0.20 out — synthetic floor for the frontier
+    max_output_tokens: 512
+    temperature: 0.0
+    tags: [synthetic, floor]
+
+strategies:
+  # The experimental variable. Each strategy is a complete, named prompt recipe;
+  # the runner never edits messages, so any token difference between two cells is
+  # produced by exactly the fields below.
+  - id: baseline
+    description: >-
+      Control arm: short system prompt, no few-shot examples, no reasoning
+      instruction, tool output passed through verbatim. The cheapest defensible
+      prompt, and the reference point for every delta in the report.
+    system_prompt_preset: short   # none | short | medium | long (~15 tok for short)
+    few_shot: 0                   # 0-16 category-matched exemplars
+    cot: false                    # true appends a "think step by step" instruction
+    compress_tool_output: false   # true replaces a tool_payload with a shape summary
+    tags: [control]
+
+  - id: cot
+    description: >-
+      baseline plus a chain-of-thought instruction. Same system prompt, same task
+      text; only the reasoning directive (and the longer answers it provokes)
+      differs, so this arm prices "think before you answer".
+    system_prompt_preset: short
+    few_shot: 0
+    cot: true
+    compress_tool_output: false
+    tags: [reasoning]
+
+  - id: fewshot-compress
+    description: >-
+      baseline plus 3 category-matched few-shot exemplars and tool-output
+      compression. Two opposing cost forces in one arm: exemplars add input
+      tokens, compression removes ~1,200 of them on the six tool-use tasks. The
+      report's strategy-delta table separates the two effects.
+    system_prompt_preset: short
+    few_shot: 3
+    cot: false
+    compress_tool_output: true
+    tags: [few-shot, compression]
+
+retry:
+  # Retries are a *cost*, not a correctness nicety: every attempt is billed, so
+  # the report attributes spend to "first attempt" vs "retry overhead".
+  max_attempts: 3          # 1 initial + 2 retries per cell
+  backoff_base_s: 0.5      # first retry waits ~0.5s
+  backoff_max_s: 8.0       # exponential backoff is capped here
+  jitter: true             # full jitter, so parallel workers do not retry in lockstep
+  retry_on:                # only transient failures; never retry a bad request
+    - rate_limit
+    - timeout
+    - server_error
+    - network
+
+budget:
+  # Hard ceilings. Hitting one aborts the remaining cells gracefully and still
+  # writes a manifest — a half-finished run is data, not a crash.
+  # 5M tokens is ~1.1x the ~4.5M prompt-token plan, so it tolerates a slice of
+  # retry and output-token overrun before it clamps. Raise it for a full live run
+  # (live output tokens are not part of the 4.5M planning figure).
+  max_total_tokens: 5000000
+  # max_cost_usd: 25.0   # uncomment to cap spend explicitly (mock runs cost $0)
+  # max_calls: 10000     # uncomment to cap the number of HTTP attempts
+
+output:
+  # Run directories are created as <dir>/<experiment>-<utc-timestamp>/.
+  dir: reports
+  formats: [json, html]   # html is the self-contained offline report
+  keep_outputs: true      # store raw model text in the call log (needed to re-grade)
+
+# Price book overlay applied on top of tokbench.pricing.DEFAULT_PRICE_BOOK.
+# Paths are resolved relative to this file, like taskset.path.
+# Leave it out to use the bundled 2026 snapshot.
+prices: prices.example.yaml
+
+# mock  = deterministic synthetic responses, offline, $0 (this file)
+# live  = real API calls through each model's provider adapter
+# auto  = live when the provider is not "mock" and credentials exist, else mock
+adapter_mode: mock

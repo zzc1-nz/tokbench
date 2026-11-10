@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the declared floor in pyproject.toml; 3.12/3.13 are what most
+        # users will actually run. Windows is included because the project was
+        # developed there and path/encoding bugs are platform-specific.
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,panel]"
+
+      - name: Validate the bundled task set
+        run: python scripts/validate_tasks.py
+
+      - name: Run tests
+        run: python -m pytest -q
+
+  e2e:
+    name: end-to-end (run → report → verify)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,panel]"
+
+      # The point of this job: prove the shipped pipeline works from a clean
+      # checkout with no API keys and no network — mock mode only.
+      - name: Smoke run
+        run: tokbench run -c examples/experiment_smoke.yaml --quiet --output /tmp/runs
+
+      - name: Report
+        run: tokbench report --run /tmp/runs --formats json,html
+
+      - name: Verify the rendered report is self-contained
+        run: |
+          report=$(find /tmp/runs -name report.html | head -n1)
+          python scripts/check_report_html.py "$report"
+
+      - name: Verify the panel data layer against a real run
+        run: |
+          run=$(dirname "$(find /tmp/runs -name report.json | head -n1)")
+          python scripts/check_panel.py "$run"
+
+      - name: Verify the panel renders under Streamlit's own runner
+        run: |
+          run=$(dirname "$(find /tmp/runs -name report.json | head -n1)")
+          python scripts/check_panel_render.py "$run"
+
+      - name: Prove the import guard is load-bearing
+        run: python scripts/verify_panel_import_guard.py
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip ruff
+      - run: ruff check .
+      - run: ruff format --check .
