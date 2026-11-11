@@ -449,6 +449,7 @@ A half-finished run is data, not a crash.
   quality delta is real.
 
 Full derivations: [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md).
+Measured results of the bundled run, with reproducibility notes: [`docs/RESULTS.md`](docs/RESULTS.md).
 
 ---
 
@@ -497,6 +498,8 @@ tokbench/
 ├── tasks/coding_bench.jsonl   # 50-task benchmark
 ├── examples/                  # flagship, smoke, and price-overlay configs
 ├── docs/METHODOLOGY.md        # every formula, derived
+├── docs/RESULTS.md            # measured outcome + reproducibility
+├── docs/example-report.html   # pre-rendered flagship report (opens offline)
 └── tests/
 ```
 

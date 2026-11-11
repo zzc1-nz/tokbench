@@ -1,10 +1,10 @@
-"""Verify every quantitative claim made in docs/RESUME.md.
+"""Verify every quantitative claim made in docs/RESULTS.md.
 
-A resume claim that cannot be reproduced is worse than no claim. This script
-recomputes each number from the committed artefacts and prints PASS/FAIL, so the
-document can be trusted before it goes on a CV.
+A published number that cannot be reproduced is worse than no number. This script
+recomputes each figure from the committed artefacts and prints PASS/FAIL, so the
+document stays honest as the code changes.
 
-    python scripts/verify_resume_claims.py
+    python scripts/verify_results.py
 """
 
 from __future__ import annotations
@@ -189,4 +189,4 @@ if failed:
     for name, _, detail in failed:
         print(f"  - {name} (actual: {detail})", file=sys.stderr)
     raise SystemExit(1)
-print("all resume claims are reproducible from the committed artefacts")
+print("all published claims are reproducible from the committed artefacts")

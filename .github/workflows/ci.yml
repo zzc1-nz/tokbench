@@ -81,6 +81,15 @@ jobs:
       - name: Prove the import guard is load-bearing
         run: python scripts/verify_panel_import_guard.py
 
+      # Every number published in docs/RESULTS.md must stay reproducible from the
+      # committed artefacts. If a code change invalidates one, this fails.
+      - name: Verify documented results are reproducible
+        run: python scripts/verify_results.py
+
+      # Guards against leaked absolute paths and credential-shaped strings.
+      - name: Audit the repository for accidental leaks
+        run: python scripts/audit_repo.py
+
   lint:
     name: lint
     runs-on: ubuntu-latest
