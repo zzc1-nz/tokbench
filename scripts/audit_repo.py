@@ -36,7 +36,19 @@ SKIP_PARTS = (
     ".mypy_cache",
     ".ruff_cache",
 )
-TEXT_SUFFIXES = {".py", ".md", ".yaml", ".yml", ".toml", ".json", ".html", ".txt", ".jsonl", ".cfg", ".ini"}
+TEXT_SUFFIXES = {
+    ".py",
+    ".md",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".json",
+    ".html",
+    ".txt",
+    ".jsonl",
+    ".cfg",
+    ".ini",
+}
 
 # A real absolute path, not an incidental number inside a float.
 PATH_PATTERNS = [
@@ -114,7 +126,18 @@ def main() -> int:
             junk = [
                 f
                 for f in tracked
-                if any(part in f for part in ("pytest-cache", ".pytemp", ".pytmp", ".pytest_tmp", "_scratch", "_tmp_render", ".ptmp"))
+                if any(
+                    part in f
+                    for part in (
+                        "pytest-cache",
+                        ".pytemp",
+                        ".pytmp",
+                        ".pytest_tmp",
+                        "_scratch",
+                        "_tmp_render",
+                        ".ptmp",
+                    )
+                )
             ]
             for j in junk:
                 findings.append(f"{j}: scratch artefact is tracked (should be gitignored)")
